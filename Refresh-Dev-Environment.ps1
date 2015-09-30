@@ -1,4 +1,5 @@
 Import-Module PureStoragePowerShellSDK
+# Refresh a dev database in a few seconds!
 
 $TargetVM = 'MyVirtualMachineName'
 
