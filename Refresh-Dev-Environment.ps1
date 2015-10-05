@@ -25,7 +25,11 @@ $FlashArray = New-PfaArray –EndPoint 10.128.0.2 -UserName myusername -Password
 
 # Perform the volume overwrite (no intermediate snapshot needed!)
 Write-Host "Overwriting the dev instance's volume with a fresh copy from production..." -ForegroundColor Red
+<<<<<<< HEAD
 New-PfaVolume -Array $FlashArray -VolumeName MyVirtualMachineName-data-volume -Source MyProdServer-data-volume -Overwrite
+=======
+New-PfaVolume -Array $FlashArray -VolumeName MyVirtualMachineName-data-volume -Source MyProduction-data-volume -Overwrite
+>>>>>>> origin/master
 
 # Online the volume
 Write-Host "Onlining the volume..." -ForegroundColor Red
