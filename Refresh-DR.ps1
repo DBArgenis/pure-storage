@@ -21,11 +21,22 @@ Write-Host "Establishing a session against the Pure Storage FlashArray..." -Fore
 $FlashArray = New-PfaArray –EndPoint 10.128.0.2 -UserName MyUsername -Password (ConvertTo-SecureString -AsPlainText "MyPassword" -Force) -IgnoreCertificateError
 
 Write-Host "Obtaining the most recent snapshot for the protection group..." -ForegroundColor Red
-$MostRecentSnapshot = Get-PfaProtectionGroupSnapshots -Array $FlashArray -Name 'pure-production-array:ProtectionGroup1' | Sort-Object created -Descending | Select -Property name -First 1
+$MostRecentSnapshots = Get-PfaProtectionGroupSnapshots -Array $FlashArray -Name 'pure-m20-b08-25-v2:FTDemoPG1' | Sort-Object created -Descending | Select -Property name -First 2
+
+# Check that the last snapshot has been fully replicated
+$FirstSnapStatus = Get-PfaProtectionGroupSnapshotReplicationStatus -Array $FlashArray -Name $MostRecentSnapshots[0].name
+
+# If the latest snapshot's completed property is null, then it hasn't been fully replicated - the previous snapshot is good, though
+If ($FirstSnapStatus.completed -ne $null) {
+    $MostRecentSnapshot = $MostRecentSnapshots[0].name   
+}
+Else {
+    $MostRecentSnapshot = $MostRecentSnapshots[1].name
+}
 
 # Perform the DR volume overwrite
 Write-Host "Overwriting the DR database volume with a copy of the most recent snapshot..." -ForegroundColor Red
-New-PfaVolume -Array $FlashArray -VolumeName MyVirtualMachineName-data-volume -Source ($MostRecentSnapshot.name + '.MyProduction-data-volume') -Overwrite
+New-PfaVolume -Array $FlashArray -VolumeName MyVirtualMachineName-data-volume -Source ($MostRecentSnapshot + '.MyProduction-data-volume') -Overwrite
 
 # Online the volume
 Write-Host "Onlining the volume..." -ForegroundColor Red
