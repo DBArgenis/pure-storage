@@ -18,10 +18,10 @@ Invoke-Command -Session $TargetVMSession -ScriptBlock { Get-Disk | ? { $_.Serial
 # THIS IS A SAMPLE SCRIPT WE USE FOR DEMOS! _PLEASE_ do not save your password in cleartext here. 
 # Use NTFS secured, encrypted files or whatever else -- never cleartext!
 Write-Host "Establishing a session against the Pure Storage FlashArray..." -ForegroundColor Red
-$FlashArray = New-PfaArray –EndPoint 10.128.0.2 -UserName MyUsername -Password (ConvertTo-SecureString -AsPlainText "MyPassword" -Force) -IgnoreCertificateError
+$FlashArray = New-PfaArray –EndPoint MyArrayName -UserName MyUsername -Password (ConvertTo-SecureString -AsPlainText "MyPassword" -Force) -IgnoreCertificateError
 
 Write-Host "Obtaining the most recent snapshot for the protection group..." -ForegroundColor Red
-$MostRecentSnapshots = Get-PfaProtectionGroupSnapshots -Array $FlashArray -Name 'pure-m20-b08-25-v2:FTDemoPG1' | Sort-Object created -Descending | Select -Property name -First 2
+$MostRecentSnapshots = Get-PfaProtectionGroupSnapshots -Array $FlashArray -Name 'MyArrayName:MyProtectionGroupName' | Sort-Object created -Descending | Select -Property name -First 2
 
 # Check that the last snapshot has been fully replicated
 $FirstSnapStatus = Get-PfaProtectionGroupSnapshotReplicationStatus -Array $FlashArray -Name $MostRecentSnapshots[0].name
