@@ -1,17 +1,19 @@
+param([Parameter(Mandatory=$true)][string]$VMGuestName,
+    [Parameter(Mandatory=$true)][string]$VMHostname,
+    [string]$VIServerName = 'MyVCenterServername',
+    [string]$ADDomain = 'pure.lab',
+    [string]$Username = 'PURELAB\Administrator',
+    [string]$Password = 'MyP@ssword99!',
+    [string]$TemplateName = 'Windows Server 2012 R2 Template',
+    [Parameter(Mandatory=$true)][string]$DatastoreName,
+    [int]$DataVolumeSizeGB = 2048,
+    [string]$WindowsActivationKey = 'ABCDE-12345-FGHIJ-67890-KLMNO')
+
 Import-Module VMware.VimAutomation.Core
 
 Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false  # I'm ignoring certificate errors - this you probably won't want to ignore.
 
-$VMGuestName = 'VM01'
-$VMHostname = 'ESX01'
-$VIServerName = 'VC01'
-$ADDomain = 'pure.lab'
-$Username = 'PURELAB\Administrator'
-$Password = 'MyP@ssword99!' # You might want to keep this safer than just cleartext in script. For example: http://www.purepowershellguy.com/?p=8431
-$TemplateName = 'Windows Server 2012 R2 Template'
-$DatastoreName = 'FlashArray Datastore'
-$DataVolumeSizeGB = 2048  # 2TB Volume
-$WindowsActivationKey = 'ABCDE-12345-FGHIJ-67890-KLMNO'
+
 
 # Connect to vSphere vCenter server
 $VIServer = Connect-VIServer -Server $VIServerName -Protocol https -User $Username -Password $Password 
@@ -30,7 +32,7 @@ While ($VM.PowerState -ne 'PoweredOn') {
 
     While ($VM.PowerState -ne 'PoweredOn') {
         Write-Host -NoNewline '.'
-        $VM = Get-VM -Server $VIServer -Name $VMComputerName
+        $VM = Get-VM -Server $VIServer -Name $VMGuestName
         Start-Sleep -Milliseconds 500
     }
 
@@ -43,7 +45,7 @@ While ($VM.Guest.Nics -eq $null) {
 
     While ($VM.Guest.Nics -eq $null) {
         Write-Host -NoNewline '.'
-        $VM = Get-VM -Server $VIServer -Name $VMComputerName
+        $VM = Get-VM -Server $VIServer -Name $VMGuestName
         Start-Sleep -Milliseconds 500
     }
 
@@ -55,7 +57,7 @@ While ($VM.Guest.Nics[0].Connected -ne $true) {
 
     While ($VM.Guest.Nics[0].Connected -ne $true) {
         Write-Host -NoNewline '.'
-        $VM = Get-VM -Server $VIServer -Name $VMComputerName
+        $VM = Get-VM -Server $VIServer -Name $VMGuestName
         Start-Sleep -Milliseconds 500
     }
 
@@ -65,7 +67,12 @@ While ($VM.Guest.Nics[0].Connected -ne $true) {
 # The VM is now connected to the network, let's run a script inside it
 $Script = [ScriptBlock]::Create(" `$Credential = New-Object –TypeName System.Management.Automation.PSCredential –ArgumentList `'$Username', (ConvertTo-SecureString –String '$Password' –AsPlainText -Force); Add-Computer -Domain '$ADDomain' -Credential `$Credential -NewName '$VMGuestName'; ")
 
-Invoke-VMScript -VM $VM -ScriptText $Script
+$ScriptOutput = Invoke-VMScript -VM $VM -ScriptText $Script
+
+If ($ScriptOutput.ScriptOutput.Trim() -notmatch 'restart') {
+    Write-Host 'Something happened while trying to join the VM to the domain. Exiting...'
+    Exit
+}
 
 Restart-VMGuest -VM $VM -Confirm:$false
 
@@ -75,7 +82,7 @@ While ($VM.Guest.Nics -eq $null) {
 
     While ($VM.Guest.Nics -eq $null) {
         Write-Host -NoNewline '.'
-        $VM = Get-VM -Server $VIServer -Name $VMComputerName
+        $VM = Get-VM -Server $VIServer -Name $VMGuestName
         Start-Sleep -Milliseconds 500
     }
 
@@ -111,14 +118,29 @@ Invoke-VMScript -VM $VM -ScriptText $Script
 $VMCD = Get-CDDrive -VM $VM
 Set-CDDrive -CD $VMCD -ISO '[Infrastructure Datastore] ISO/en_sql_server_2014_enterprise_core_edition_with_service_pack_1_x64_dvd_6672706.iso' -Connected:$true -Confirm:$false
 
+# Check if CD drive is connected, otherwise wait a bit.
 While ($VMCD.ConnectionState.Connected -ne $true) {
     Write-Host 'CD is not ready yet, waiting...'
     $VMCD = Get-CDDrive -VM $VM
     Start-Sleep -Milliseconds 500
 }
 
+# Check to see if D:\setup.exe is ready to be launched, otherwise wait a bit.
+$Script = { Test-Path D:\Setup.exe }
+
+$ScriptOutput = Invoke-VMScript -VM $VM -ScriptText $Script -GuestUser $Username -GuestPassword $Password
+
+While ($ScriptOutput.ScriptOutput.Trim() -ne 'True') {
+    Start-Sleep -Milliseconds 500
+
+    $Script = { Test-Path D:\Setup.exe }
+
+    $ScriptOutput = Invoke-VMScript -VM $VM -ScriptText $Script -GuestUser $Username -GuestPassword $Password
+}
+
+
 # Install SQL Server 2014
-$Script = [ScriptBlock]::Create(" & D:\setup.exe /ACTION=`"Install`" /ERRORREPORTING=0 /FEATURES=SQLEngine,Replication,BC,Conn,SSMS,ADV_SSMS /UPDATEENABLED=0 /INSTANCENAME=MSSQLSERVER /AGTSVCACCOUNT=`"NT AUTHORITY\NETWORK SERVICE`" /SQLSVCACCOUNT=`"NT AUTHORITY\NETWORK SERVICE`" /SQLSYSADMINACCOUNTS=`"$Username`" /Q /SQMREPORTING=0 /BROWSERSVCSTARTUPTYPE=`"Disabled`" /SECURITYMODE=`"SQL`" /SAPWD=`"$Password`" /SQLSVCSTARTUPTYPE=`"Automatic`" /TCPENABLED=1 /IACCEPTSQLSERVERLICENSETERMS /SQLBACKUPDIR=X:\Backup /SQLTEMPDBDIR=X:\tempdb /SQLTEMPDBLOGDIR=X:\tempdb /SQLUSERDBDIR=X:\SqlData /SQLUSERDBLOGDIR=X:\SqlData ")
+$Script = [ScriptBlock]::Create(" & D:\setup.exe /ACTION=`"Install`" /ERRORREPORTING=0 /FEATURES=SQLEngine,Replication,BC,Conn,SSMS,ADV_SSMS /UPDATEENABLED=1 /UPDATESOURCE=\\PSSQLAD\SQLServerUpdates /INSTANCENAME=MSSQLSERVER /AGTSVCACCOUNT=`"NT AUTHORITY\NETWORK SERVICE`" /SQLSVCACCOUNT=`"NT AUTHORITY\NETWORK SERVICE`" /SQLSYSADMINACCOUNTS=`"$Username`" /Q /SQMREPORTING=0 /BROWSERSVCSTARTUPTYPE=`"Disabled`" /SECURITYMODE=`"SQL`" /SAPWD=`"$Password`" /SQLSVCSTARTUPTYPE=`"Automatic`" /TCPENABLED=1 /IACCEPTSQLSERVERLICENSETERMS /SQLBACKUPDIR=X:\Backup /SQLTEMPDBDIR=X:\tempdb /SQLTEMPDBLOGDIR=X:\tempdb /SQLUSERDBDIR=X:\SqlData /SQLUSERDBLOGDIR=X:\SqlData ")
 
 Invoke-VMScript -VM $VM -ScriptText $Script -GuestUser $Username -GuestPassword $Password
 
@@ -126,8 +148,10 @@ Invoke-VMScript -VM $VM -ScriptText $Script -GuestUser $Username -GuestPassword 
 
 $Script = { Import-Module SQLPS; 
             Invoke-Sqlcmd -Query "EXEC sys.sp_configure 'show advanced options', N'1'; RECONFIGURE;" -ServerInstance . ;
-            Invoke-Sqlcmd -Query "EXEC sys.sp_configure 'max server memory (MB)', N'28672'; EXEC sys.sp_configure 'max degree of parallelism', N'4'; EXEC sys.sp_configure N'optimize for ad hoc workloads', N'1'; RECONFIGURE;" -ServerInstance . ; }
-
+            Invoke-Sqlcmd -Query "EXEC sys.sp_configure 'max server memory (MB)', N'28672'; EXEC sys.sp_configure 'max degree of parallelism', N'4'; EXEC sys.sp_configure N'optimize for ad hoc workloads', N'1'; RECONFIGURE;" -ServerInstance . ; 
+            Invoke-SqlCmd -Query "ALTER DATABASE tempdb ADD FILE (NAME = tempdev2, FILENAME = 'X:\tempdb\tempdev2.mdf', SIZE = 512MB); ALTER DATABASE tempdb ADD FILE (NAME = tempdev3, FILENAME = 'X:\tempdb\tempdev3.mdf', SIZE = 512MB); ALTER DATABASE tempdb ADD FILE (NAME = tempdev4, FILENAME = 'X:\tempdb\tempdev4.mdf', SIZE = 512MB); ALTER DATABASE tempdb ADD FILE (NAME = tempdev5, FILENAME = 'X:\tempdb\tempdev5.mdf', SIZE = 512MB); ALTER DATABASE tempdb ADD FILE (NAME = tempdev6, FILENAME = 'X:\tempdb\tempdev6.mdf', SIZE = 512MB); ALTER DATABASE tempdb ADD FILE (NAME = tempdev7, FILENAME = 'X:\tempdb\tempdev7.mdf', SIZE = 512MB); ALTER DATABASE tempdb ADD FILE (NAME = tempdev8, FILENAME = 'X:\tempdb\tempdev8.mdf', SIZE = 512MB); ALTER DATABASE tempdb MODIFY FILE (NAME = tempdev, FILENAME = 'X:\tempdb\tempdev.mdf', SIZE=512MB) ALTER DATABASE tempdb MODIFY FILE (NAME = templog, FILENAME = 'X:\tempdb\templog.ldf', SIZE=2048MB)" -ServerInstance . ; 
+          }
+            
 Invoke-VMScript -VM $VM -ScriptText $Script -GuestUser $Username -GuestPassword $Password
 
 # Activate Windows
