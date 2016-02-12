@@ -13,8 +13,6 @@ Import-Module VMware.VimAutomation.Core
 
 Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false  # I'm ignoring certificate errors - this you probably won't want to ignore.
 
-
-
 # Connect to vSphere vCenter server
 $VIServer = Connect-VIServer -Server $VIServerName -Protocol https -User $Username -Password $Password 
 
