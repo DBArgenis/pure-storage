@@ -2,7 +2,7 @@
 SELECT d.name FROM sys.databases d
 WHERE d.is_encrypted = 1;
 
--- Show if any databases have any partitions with INDEX/ROW compression
+-- Show if any databases have any partitions with PAGE/ROW/ColumnStore compression
 
 EXECUTE sys.sp_MSforeachdb N'USE ?; SELECT DISTINCT DB_NAME() + ''.'' + SCHEMA_NAME(o.schema_id) + ''.'' + OBJECT_NAME(p.object_id) As TableName, p.data_compression_desc As TypeOfCompression
 									FROM sys.partitions p 
